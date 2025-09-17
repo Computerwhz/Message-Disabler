@@ -1,0 +1,5 @@
+config-version: 1
+
+message-commands:
+
+clear-line-amount: 200
