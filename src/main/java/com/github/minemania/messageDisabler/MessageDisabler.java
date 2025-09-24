@@ -7,6 +7,7 @@ import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.plugin.Plugin;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
+import com.velocitypowered.api.proxy.ConsoleCommandSource;
 import com.velocitypowered.api.proxy.Player;
 import com.velocitypowered.api.proxy.ProxyServer;
 import dev.dejvokep.boostedyaml.YamlDocument;
@@ -16,14 +17,13 @@ import dev.dejvokep.boostedyaml.settings.dumper.DumperSettings;
 import dev.dejvokep.boostedyaml.settings.general.GeneralSettings;
 import dev.dejvokep.boostedyaml.settings.loader.LoaderSettings;
 import dev.dejvokep.boostedyaml.settings.updater.UpdaterSettings;
+import net.kyori.adventure.text.Component;
 import org.slf4j.Logger;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 
 @Plugin(id = "messagedisabler", name = "MessageDisabler", version = "1.0", authors = {"Computerwhz"})
 public class MessageDisabler {
@@ -45,7 +45,7 @@ public class MessageDisabler {
 
         try {
             this.config = YamlDocument.create(new File(dataDirectory.toFile(), "config.yml"),
-                    Objects.requireNonNull(getClass().getResourceAsStream("config.yml")),
+                    getClass().getResourceAsStream("config.yml"),
                     GeneralSettings.DEFAULT,
                     LoaderSettings.builder().setAutoUpdate(true).build(),
                     DumperSettings.DEFAULT,
@@ -61,18 +61,42 @@ public class MessageDisabler {
 
     @Subscribe
     public void OnCommandRun(CommandExecuteEvent event){
-        String fullCommand = event.getCommand();
-        CommandSource source = event.getCommandSource();
+        if (event.getCommandSource() instanceof Player) {
 
-        String[] parts = fullCommand.split(" ");
-        String baseCommand = parts[0]; // "msg"
-        String[] args = Arrays.copyOfRange(parts, 1, parts.length);
+            String fullCommand = event.getCommand();
+            Player sendingPlayer = (Player) event.getCommandSource();
 
-        Player receivedPlayer = getProxyServer().getPlayer(args[0]).get();
+            String[] parts = fullCommand.split(" ", 3);
+            // limit=3 ensures we only split into:
+            // [0] = "msg"
+            // [1] = "Steve"
+            // [2] = "hello there"
 
-        if (messageCommands(baseCommand)){
-            if (source.hasPermission("MessageDisabler.disable")){
-                ChatClear.clearChat(receivedPlayer);
+            String baseCommand = parts[0];
+
+            Player receivedPlayer = null;
+            if (parts.length > 1) {
+                Optional<Player> targetOpt = getProxyServer().getPlayer(parts[1]);
+                if (targetOpt.isPresent()) {
+                    receivedPlayer = targetOpt.get();
+                } else {
+                    return; // stop if player not online
+                }
+            }
+
+            String message = parts.length > 2 ? parts[2] : null;
+
+            if (sendingPlayer.hasPermission("messagedisabler.disable")){
+                if (messageCommands(baseCommand)) {
+                    event.setResult(CommandExecuteEvent.CommandResult.denied());
+                    logger.atDebug().log("Message command executed");
+                    sendingPlayer.sendMessage(Component.text("You are Not Allowed to use private messaging for safeguarding reasons"));
+                    for (Player p : getProxyServer().getAllPlayers()) {
+                        if (p.hasPermission("messagedisabler.notify")) {
+                            p.sendMessage(Component.text("Player " + sendingPlayer.getUsername() + " Attempted to send " + receivedPlayer.getUsername() + "a private message but is not allowed to\n" + message));
+                        }
+                    }
+                }
             }
         }
 
@@ -88,15 +112,15 @@ public class MessageDisabler {
     }
 
     public Logger getLogger() {
-        return logger;
+        return this.logger;
     }
 
     public ProxyServer getProxyServer(){
-        return proxyServer;
+        return this.proxyServer;
     }
 
     public YamlDocument getConfig() {
-        return config;
+        return this.config;
     }
 
     public static MessageDisabler getInstance(){
